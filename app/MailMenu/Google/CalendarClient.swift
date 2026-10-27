@@ -26,6 +26,11 @@ struct CalendarClient {
 
     private static let baseURL = URL(string: "https://www.googleapis.com/calendar/v3")!
 
+    /// The account's calendar in Google Calendar on the web.
+    static func calendarURL(for accountEmail: String) -> URL {
+        URL(string: "https://calendar.google.com/calendar/r?authuser=\(accountEmail.urlQueryValueEncoded)")!
+    }
+
     /// Timed events on the primary calendar that overlap the given range (including ones already
     /// in progress), excluding cancelled events, declined invitations, and working location entries.
     func events(from start: Date, to end: Date, accountEmail: String) async throws -> [CalendarEvent] {

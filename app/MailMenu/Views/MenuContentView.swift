@@ -84,6 +84,18 @@ private struct AccountSection: View {
                     .font(.headline)
                     .lineLimit(1)
                 Spacer()
+                Button {
+                    model.openInbox(of: account)
+                } label: {
+                    Image(systemName: "envelope")
+                }
+                .help("Open inbox in browser")
+                Button {
+                    model.openCalendar(of: account)
+                } label: {
+                    Image(systemName: "calendar")
+                }
+                .help("Open calendar in browser")
                 if account.isRefreshing {
                     ProgressView().controlSize(.small)
                 } else {
@@ -109,9 +121,7 @@ private struct AccountSection: View {
                 ErrorText(error)
             }
 
-            if account.messages.isEmpty {
-                PlaceholderText(account.lastRefreshed == nil ? "Loading…" : "No unread mail")
-            } else {
+            if !account.messages.isEmpty {
                 VStack(spacing: 0) {
                     ForEach(account.messages) { message in
                         MessageRow(message: message) { model.open(message, in: account) }
@@ -120,23 +130,11 @@ private struct AccountSection: View {
                 .padding([.horizontal, .bottom], 4)
             }
 
-            Text("Upcoming")
-                .font(.caption)
-                .fontWeight(.semibold)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 12)
-                .padding(.bottom, 4)
-
             if let error = account.calendarErrorMessage {
                 ErrorText(error)
             }
 
-            if account.upcomingEvents.isEmpty {
-                if account.calendarErrorMessage == nil {
-                    PlaceholderText(account.events == nil ? "Loading…" : "No events in the next 24 hours")
-                }
-            } else {
+            if !account.upcomingEvents.isEmpty {
                 VStack(spacing: 0) {
                     ForEach(account.upcomingEvents) { event in
                         EventRow(event: event) { model.open(event) }
@@ -144,23 +142,16 @@ private struct AccountSection: View {
                 }
                 .padding([.horizontal, .bottom], 4)
             }
+
+            if account.hasLoaded, account.messages.isEmpty, account.upcomingEvents.isEmpty,
+               account.errorMessage == nil, account.calendarErrorMessage == nil {
+                Text("No unread mail or upcoming events.")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
+            }
         }
-    }
-}
-
-private struct PlaceholderText: View {
-    let text: String
-
-    init(_ text: String) {
-        self.text = text
-    }
-
-    var body: some View {
-        Text(text)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.bottom, 12)
     }
 }
 

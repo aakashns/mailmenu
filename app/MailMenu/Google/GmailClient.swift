@@ -25,6 +25,11 @@ struct GmailClient {
 
     private static let baseURL = URL(string: "https://gmail.googleapis.com/gmail/v1/users/me")!
 
+    /// The account's inbox in Gmail on the web.
+    static func inboxURL(for accountEmail: String) -> URL {
+        URL(string: "https://mail.google.com/mail/?authuser=\(accountEmail.urlQueryValueEncoded)#inbox")!
+    }
+
     func profileEmail() async throws -> String {
         let profile: Profile = try await get("profile")
         return profile.emailAddress

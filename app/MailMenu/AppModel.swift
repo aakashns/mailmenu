@@ -106,6 +106,7 @@ final class AppModel {
         async let mail: Void = refreshMail(account, token: token)
         async let calendar: Void = refreshCalendar(account, token: token)
         _ = await (mail, calendar)
+        account.hasLoaded = true
     }
 
     private func refreshMail(_ account: GoogleAccount, token: String) async {
@@ -114,7 +115,6 @@ final class AppModel {
             async let messages = client.unreadInboxMessages(limit: 25)
             async let unreadCount = client.inboxUnreadCount()
             (account.messages, account.unreadCount) = try await (messages, unreadCount)
-            account.lastRefreshed = .now
             account.errorMessage = nil
         } catch {
             account.errorMessage = error.localizedDescription
@@ -138,6 +138,14 @@ final class AppModel {
 
     func open(_ message: UnreadMessage, in account: GoogleAccount) {
         NSWorkspace.shared.open(message.gmailURL(for: account.email))
+    }
+
+    func openInbox(of account: GoogleAccount) {
+        NSWorkspace.shared.open(GmailClient.inboxURL(for: account.email))
+    }
+
+    func openCalendar(of account: GoogleAccount) {
+        NSWorkspace.shared.open(CalendarClient.calendarURL(for: account.email))
     }
 
     func open(_ event: CalendarEvent) {
@@ -184,10 +192,10 @@ final class GoogleAccount: Identifiable {
     fileprivate(set) var messages: [UnreadMessage] = []
     fileprivate(set) var unreadCount: Int?
     fileprivate(set) var isRefreshing = false
-    fileprivate(set) var lastRefreshed: Date?
+    /// Whether mail and events have been fetched at least once.
+    fileprivate(set) var hasLoaded = false
     fileprivate(set) var errorMessage: String?
-    /// Nil until the calendar has been loaded.
-    fileprivate(set) var events: [CalendarEvent]?
+    fileprivate(set) var events: [CalendarEvent] = []
     fileprivate(set) var calendarErrorMessage: String?
     fileprivate var accessToken: AccessToken?
 
@@ -196,7 +204,7 @@ final class GoogleAccount: Identifiable {
     /// Events that haven't ended yet, soonest first.
     var upcomingEvents: [CalendarEvent] {
         let now = Date.now
-        return (events ?? []).filter { $0.end > now }
+        return events.filter { $0.end > now }
     }
 
     init(email: String, refreshToken: String) {
