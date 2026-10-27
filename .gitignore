@@ -1,0 +1,10 @@
+.DS_Store
+
+# Xcode
+xcuserdata/
+DerivedData/
+build/
+*.xcuserstate
+
+# Local, machine-specific build settings (Google client ID, signing team)
+app/Config/Local.xcconfig

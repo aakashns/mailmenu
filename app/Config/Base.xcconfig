@@ -1,0 +1,13 @@
+// Shared build settings for the MailMenu target.
+// Machine-specific values (your Google OAuth client ID, signing team) go in
+// Local.xcconfig, which is gitignored. See Local.xcconfig.example.
+
+// "Sign to Run Locally" by default, so the project builds without an Apple developer account.
+CODE_SIGN_STYLE = Automatic
+CODE_SIGN_IDENTITY = -
+DEVELOPMENT_TEAM =
+
+// OAuth client ID of an "iOS" type client from the Google Cloud console.
+GOOGLE_CLIENT_ID =
+
+#include? "Local.xcconfig"
