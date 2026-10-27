@@ -5,8 +5,6 @@ struct MessageRow: View {
     let message: UnreadMessage
     let action: () -> Void
 
-    @State private var isHovered = false
-
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 2) {
@@ -23,13 +21,7 @@ struct MessageRow: View {
                 Text(message.subject.isEmpty ? "(no subject)" : message.subject)
                     .lineLimit(1)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(isHovered ? Color.primary.opacity(0.08) : .clear, in: .rect(cornerRadius: 6))
-            .contentShape(.rect)
         }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
+        .buttonStyle(.row)
     }
 }

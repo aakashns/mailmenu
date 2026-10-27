@@ -2,7 +2,10 @@
 
 A macOS menu bar app to track unread email and upcoming calendar events.
 
-Currently: sign in with Google and see the unread messages in your Gmail inbox. Click a message to open it in Gmail in your default browser.
+Currently: sign in with one or more Google accounts to see:
+
+- **Unread mail** in your Gmail inboxes, with the total count in the menu bar. Click a message to open it in Gmail.
+- **Upcoming events** in the next 24 hours from your Google Calendars. Click an event to join its video call (Google Meet, Zoom, Teams, …) or open it in Google Calendar.
 
 ## Repository layout
 
@@ -19,12 +22,12 @@ Requirements: macOS 14+, Xcode 16+.
 ### 1. Create a Google OAuth client
 
 1. Go to the [Google Cloud console](https://console.cloud.google.com/) and create a project (e.g. "Mail Menu").
-2. Enable the [Gmail API](https://console.cloud.google.com/apis/library/gmail.googleapis.com) for the project.
+2. Enable the [Gmail API](https://console.cloud.google.com/apis/library/gmail.googleapis.com) and the [Google Calendar API](https://console.cloud.google.com/apis/library/calendar-json.googleapis.com) for the project.
 3. Open [Google Auth Platform](https://console.cloud.google.com/auth/overview) and click **Get started**:
    - App name: `Mail Menu`, plus your email as the support email.
    - Audience: **External**.
 4. Under **Audience → Test users**, add the Google account(s) you want to sign in with.
-5. Under **Data Access**, add the scope `https://www.googleapis.com/auth/gmail.readonly`.
+5. Under **Data Access**, add the scopes `https://www.googleapis.com/auth/gmail.readonly` and `https://www.googleapis.com/auth/calendar.events.readonly`.
 6. Under **Clients**, click **Create client**:
    - Application type: **iOS** (Google uses iOS clients for macOS apps; they need no client secret)
    - Bundle ID: `app.mailmenu.MailMenu`
@@ -59,6 +62,8 @@ The command quits any running copy of the app before opening the new build. If t
 
 - **Sign-in** uses OAuth 2.0 for native apps (authorization code + PKCE) through `ASWebAuthenticationSession`. The refresh token is stored in the macOS Keychain. Nothing leaves your Mac except requests to Google.
 - **Mail** is read through the Gmail REST API with the read-only `gmail.readonly` scope. The app lists messages labeled both `INBOX` and `UNREAD`.
+- **Events** are read through the Google Calendar API with the read-only `calendar.events.readonly` scope. The app shows timed events from your primary calendar, and skips all-day events, declined invitations and working location entries.
+- Everything refreshes every 2 minutes, and whenever you open the menu.
 
 ## License
 

@@ -80,6 +80,9 @@ final class GoogleAuth: NSObject {
             URLQueryItem(name: "code_challenge", value: challenge),
             URLQueryItem(name: "code_challenge_method", value: "S256"),
             URLQueryItem(name: "state", value: state),
+            // Always show the account chooser, so adding a second account doesn't
+            // silently reuse the account the browser is already signed into.
+            URLQueryItem(name: "prompt", value: "select_account"),
         ]
 
         let callbackURL = try await authenticate(url: components.url!, callbackScheme: config.redirectScheme)

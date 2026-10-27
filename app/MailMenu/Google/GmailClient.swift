@@ -11,31 +11,29 @@ struct UnreadMessage: Identifiable, Hashable {
     /// Opens the conversation in Gmail on the web, in the right account even if the browser
     /// is signed into several Google accounts (or prompts to sign in if it isn't signed in).
     func gmailURL(for accountEmail: String) -> URL {
-        let email = accountEmail.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(.init(charactersIn: "-._~"))) ?? accountEmail
-        return URL(string: "https://mail.google.com/mail/?authuser=\(email)#inbox/\(threadID)")!
-    }
-}
-
-enum GmailError: LocalizedError {
-    case requestFailed(status: Int, message: String?)
-
-    var errorDescription: String? {
-        switch self {
-        case .requestFailed(let status, let message):
-            "Gmail request failed (HTTP \(status))" + (message.map { ": \($0)" } ?? "")
-        }
+        URL(string: "https://mail.google.com/mail/?authuser=\(accountEmail.urlQueryValueEncoded)#inbox/\(threadID)")!
     }
 }
 
 /// Read-only client for the Gmail REST API (https://developers.google.com/gmail/api/reference/rest).
 struct GmailClient {
-    let accessToken: String
+    let api: GoogleAPI
+
+    init(accessToken: String) {
+        api = GoogleAPI(accessToken: accessToken)
+    }
 
     private static let baseURL = URL(string: "https://gmail.googleapis.com/gmail/v1/users/me")!
 
     func profileEmail() async throws -> String {
         let profile: Profile = try await get("profile")
         return profile.emailAddress
+    }
+
+    /// Total number of unread messages in the inbox (not limited to the ones we list).
+    func inboxUnreadCount() async throws -> Int {
+        let label: LabelInfo = try await get("labels/INBOX")
+        return label.messagesUnread
     }
 
     /// The most recent unread messages in the inbox, newest first.
@@ -78,18 +76,7 @@ struct GmailClient {
     }
 
     private func get<T: Decodable>(_ path: String, query: [URLQueryItem] = []) async throws -> T {
-        var components = URLComponents(url: Self.baseURL.appending(path: path), resolvingAgainstBaseURL: false)!
-        if !query.isEmpty { components.queryItems = query }
-        var request = URLRequest(url: components.url!)
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard status == 200 else {
-            let message = (try? JSONDecoder().decode(APIErrorResponse.self, from: data))?.error.message
-            throw GmailError.requestFailed(status: status, message: message)
-        }
-        return try JSONDecoder().decode(T.self, from: data)
+        try await api.get(Self.baseURL.appending(path: path), query: query)
     }
 }
 
@@ -110,6 +97,10 @@ private struct Profile: Decodable {
     let emailAddress: String
 }
 
+private struct LabelInfo: Decodable {
+    let messagesUnread: Int
+}
+
 private struct MessageList: Decodable {
     struct Ref: Decodable { let id: String }
     let messages: [Ref]?
@@ -121,9 +112,4 @@ private struct Message: Decodable {
     let id: String
     let threadId: String
     let payload: Payload
-}
-
-private struct APIErrorResponse: Decodable {
-    struct Body: Decodable { let message: String }
-    let error: Body
 }
