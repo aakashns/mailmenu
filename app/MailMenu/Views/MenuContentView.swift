@@ -15,7 +15,7 @@ struct MenuContentView: View {
             }
 
             if let error = model.errorMessage {
-                ErrorText(error)
+                ErrorText(error, dismiss: { model.errorMessage = nil })
             }
 
             Divider()
@@ -52,24 +52,41 @@ private struct SignInView: View {
 /// Each account's unread mail and upcoming events.
 private struct MainListView: View {
     @Environment(AppModel.self) private var model
-    @State private var contentHeight: CGFloat = 0
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                ForEach(model.accounts) { account in
-                    if account !== model.accounts.first {
-                        Divider()
+        // Grow with the content, and scroll once it gets too tall for the screen.
+        HeightCap(maxHeight: 520) {
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(model.accounts) { account in
+                        if account !== model.accounts.first {
+                            Divider()
+                        }
+                        AccountSection(account: account)
                     }
-                    AccountSection(account: account)
                 }
             }
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+            .scrollBounceBehavior(.basedOnSize)
         }
-        // Grow with the content, and scroll once it gets too tall for the screen.
-        .frame(height: min(contentHeight, 520))
-        // Refresh every time the panel opens.
-        .onAppear { Task { await model.refreshAll() } }
+    }
+}
+
+/// Sizes its content to its ideal height, up to `maxHeight`.
+///
+/// Measuring and sizing happen in the same layout pass. Reading the height with a geometry callback and then
+/// setting a frame would lag a frame behind, briefly leaving a gap or clipping rows whenever the list changes.
+private struct HeightCap: Layout {
+    var maxHeight: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let content = subviews.first else { return .zero }
+        // A scroll view proposed no height reports the full height of what it contains.
+        let ideal = content.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))
+        return CGSize(width: ideal.width, height: min(ideal.height, maxHeight))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(bounds.size))
     }
 }
 
@@ -81,16 +98,20 @@ private struct AccountSection: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Button {
-                    withAnimation(.snappy(duration: 0.2)) { account.isExpanded.toggle() }
+                    account.isExpanded.toggle()
                 } label: {
                     HStack(spacing: 6) {
+                        // Only the chevron animates. The panel resizes at once, so animating the rows
+                        // would leave them sliding around inside a window that's already its final size.
                         Image(systemName: "chevron.right")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                             .rotationEffect(.degrees(account.isExpanded ? 90 : 0))
+                            .animation(.snappy(duration: 0.2), value: account.isExpanded)
                         Text(account.email)
                             .font(.headline)
                             .lineLimit(1)
+                            .truncationMode(.middle)
                         if let count = account.count(for: model.mailFilter), count > 0 {
                             Text(count, format: .number)
                                 .font(.caption.weight(.semibold).monospacedDigit())
@@ -98,6 +119,7 @@ private struct AccountSection: View {
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 1)
                                 .background(.quaternary, in: .capsule)
+                                .fixedSize()
                         }
                     }
                     .contentShape(.rect)
@@ -105,18 +127,20 @@ private struct AccountSection: View {
                 .buttonStyle(.plain)
                 .help(account.isExpanded ? "Collapse" : "Expand")
                 Spacer()
-                if account.isRefreshing {
-                    ProgressView().controlSize(.small)
-                        .frame(width: 16, height: 16)
-                } else {
-                    Button {
-                        Task { await model.refresh(account) }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .frame(width: 16, height: 16)
+                // The spinner takes the button's place in a fixed-size slot, so the header doesn't shift.
+                ZStack {
+                    if account.isRefreshing {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Button {
+                            Task { await model.refresh(account) }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        .help("Refresh")
                     }
-                    .help("Refresh")
                 }
+                .frame(width: 16, height: 16)
                 Button {
                     model.openInbox(of: account)
                 } label: {
@@ -145,9 +169,9 @@ private struct AccountSection: View {
                     ErrorText(error)
                 }
 
-                if !account.messages.isEmpty {
+                if !account.visibleMessages.isEmpty {
                     VStack(spacing: 0) {
-                        ForEach(account.messages) { message in
+                        ForEach(account.visibleMessages) { message in
                             MessageRow(
                                 message: message,
                                 archive: { Task { await model.archive(message, in: account) } },
@@ -189,20 +213,35 @@ private struct AccountSection: View {
     }
 }
 
+/// An error in red, cut off after a few lines (hover for the rest), with an optional button to dismiss it.
 private struct ErrorText: View {
     let message: String
+    let dismiss: (() -> Void)?
 
-    init(_ message: String) {
+    init(_ message: String, dismiss: (() -> Void)? = nil) {
         self.message = message
+        self.dismiss = dismiss
     }
 
     var body: some View {
-        Text(message)
-            .font(.caption)
-            .foregroundStyle(.red)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.red)
+                .lineLimit(3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .help(message)
+            if let dismiss {
+                Button(action: dismiss) {
+                    Image(systemName: "xmark")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.borderless)
+                .help("Dismiss")
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
     }
 }
 

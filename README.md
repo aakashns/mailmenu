@@ -67,8 +67,8 @@ To install somewhere else, set `INSTALL_DIR`, e.g. `INSTALL_DIR=~/Applications s
 ```
 app/        macOS app (SwiftUI, Xcode project)
   Config/   build settings, Info.plist, entitlements
-  MailMenu/ Swift sources
-scripts/    install script
+  MailMenu/ Swift sources (Demo/ has the fake data and server for demo mode)
+scripts/    install and demo scripts
 ```
 
 ## Development setup
@@ -91,6 +91,22 @@ xcodebuild -project app/MailMenu.xcodeproj -scheme MailMenu -configuration Debug
 The command quits any running copy of the app before opening the new build. If the build fails, the old copy keeps running.
 
 If you've also installed Mail Menu with `scripts/install.sh`, quit the installed copy while developing, or you'll see two menu bar icons.
+
+### Demo mode
+
+To work on the app without your real mail, run it in demo mode:
+
+```sh
+scripts/demo.sh
+```
+
+It shows made-up accounts, mail and events, served by a fake Google server inside the app (`app/MailMenu/Demo/`). The real Gmail and Calendar code runs as usual, but nothing goes over the network, and your accounts and Keychain aren't touched. Archiving, deleting, snoozing, blocking and unsubscribing all work against the fake data, and **Continue with Google** adds another demo account. Actions on the message from Flaky Bot always fail, to show how errors look. Everything resets when the app quits. You don't need a Google client ID for demo mode.
+
+Use demo mode for screenshots and recordings in issues and pull requests, since this repository is public.
+
+`scripts/demo.sh --script` walks through the actions most likely to upset the layout (deleting, a failed action, collapsing an account, switching filters, signing out and in). It saves a snapshot of the panel after each step and reports any frame where the window didn't match the size of its content.
+
+In Xcode, turn on the `--demo` argument under **Product → Scheme → Edit Scheme → Run → Arguments**. `--open` opens the panel at launch.
 
 ### Things to know
 
