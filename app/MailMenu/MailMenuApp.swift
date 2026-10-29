@@ -1,9 +1,14 @@
 import AppKit
+import ServiceManagement
 import SwiftUI
 
 @main
 struct MailMenuApp: App {
     @State private var model = AppModel()
+
+    init() {
+        Self.enableOpenAtLoginOnFirstLaunch()
+    }
 
     var body: some Scene {
         MenuBarExtra {
@@ -13,6 +18,16 @@ struct MailMenuApp: App {
             MenuBarLabel(unreadCount: model.totalUnreadCount)
         }
         .menuBarExtraStyle(.window)
+    }
+}
+
+/// Registers the app as a login item once, so turning it off in System Settings > Login Items sticks.
+private extension MailMenuApp {
+    static func enableOpenAtLoginOnFirstLaunch() {
+        let key = "didRegisterLoginItem"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        try? SMAppService.mainApp.register()
     }
 }
 

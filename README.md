@@ -2,12 +2,17 @@
 
 A macOS menu bar app to track unread email and upcoming calendar events.
 
-Currently: sign in with one or more Google accounts to see:
-
-- **Unread mail** in your Gmail inboxes, with the total count in the menu bar. Switch the footer selector to **All** to see the first 20 messages of the inbox, read or not. Click a message to open it in Gmail, or hover it to archive it or unsubscribe from its mailing list (or, for other mail, block the sender and report spam). Click an account to collapse or expand it.
-- **Upcoming events** in the next 24 hours from your Google Calendars. Events already in progress are included. Click an event to join its video call (Google Meet, Zoom, Teams, …) or open it in Google Calendar, or hover it and use the calendar button to open it in Google Calendar.
-
 ![Mail Menu showing unread mail and upcoming events for two accounts](docs/screenshot.jpg)
+
+## Features
+
+- Unread count in the menu bar, across multiple Google accounts
+- Unread or all inbox mail, with collapsible accounts
+- Open a message in Gmail with a click
+- Archive, unsubscribe, or block and report spam on hover
+- Upcoming events in the next 24 hours, including those in progress
+- Join video calls (Meet, Zoom, Teams, …) or open events in Google Calendar
+- Opens at login, refreshes every 2 minutes and whenever you open the menu
 
 ## Prerequisites
 
@@ -50,7 +55,7 @@ Currently: sign in with one or more Google accounts to see:
 
    This builds a release copy, installs it to `/Applications/MailMenu.app` and launches it. An envelope icon appears in the menu bar. Click it, then click **Continue with Google**.
 
-4. To start Mail Menu when you log in, open **System Settings → General → Login Items**, click **+** under "Open at Login" and choose **MailMenu**.
+4. Mail Menu adds itself to **Login Items** the first time it launches. To turn that off, use **System Settings → General → Login Items**.
 
 To update, pull the latest changes and run `scripts/install.sh` again. It quits the running copy before replacing it. To uninstall, quit Mail Menu and delete `/Applications/MailMenu.app`. Your sign-in stays in the Keychain under `app.mailmenu.MailMenu` until you delete it in Keychain Access.
 

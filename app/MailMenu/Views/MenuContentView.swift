@@ -268,6 +268,10 @@ private struct FooterView: View {
                     Task { await model.addAccount() }
                 } label: {
                     Image(systemName: "plus")
+                        .font(.system(size: 10, weight: .semibold))
+                        .frame(width: 20, height: 20)
+                        .overlay(Circle().strokeBorder(.secondary.opacity(0.6), lineWidth: 1))
+                        .contentShape(.circle)
                 }
                 .disabled(model.isSigningIn)
                 .help("Add account")
