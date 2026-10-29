@@ -88,6 +88,18 @@ struct GmailClient {
         )
     }
 
+    /// The message's body as plain text (converted from HTML if it has no plain text part), for previews.
+    func bodyText(id: String) async throws -> String {
+        let message: FullMessage = try await get("messages/\(id)", query: [URLQueryItem(name: "format", value: "full")])
+        if let plain = message.payload.firstBody(ofType: "text/plain") {
+            return plain.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let html = message.payload.firstBody(ofType: "text/html") {
+            return plainText(fromHTML: html)
+        }
+        return ""
+    }
+
     /// Removes the conversation from the inbox, like Gmail's Archive button.
     func archive(threadID: String) async throws {
         try await modify(threadID: threadID, add: [], remove: ["INBOX"])
@@ -152,6 +164,52 @@ private struct Message: Decodable {
     let id: String
     let threadId: String
     let payload: Payload
+}
+
+/// A rough conversion of an HTML email to text: drops tags, styles and scripts and decodes common entities.
+private func plainText(fromHTML html: String) -> String {
+    var text = html
+    for (pattern, replacement) in [
+        ("(?is)<(style|script|head)[^>]*>.*?</\\1>", ""),
+        ("(?i)<br\\s*/?>|</(p|div|tr|li|h[1-6])>", "\n"),
+        ("<[^>]+>", ""),
+    ] {
+        text = text.replacingOccurrences(of: pattern, with: replacement, options: .regularExpression)
+    }
+    for (entity, character) in [("&nbsp;", " "), ("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"), ("&quot;", "\""), ("&#39;", "'"), ("&zwnj;", "")] {
+        text = text.replacingOccurrences(of: entity, with: character)
+    }
+    return text
+        .replacingOccurrences(of: "[ \\t]+", with: " ", options: .regularExpression)
+        .replacingOccurrences(of: "\\s*\\n\\s*", with: "\n", options: .regularExpression)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+private struct FullMessage: Decodable {
+    struct Part: Decodable {
+        struct Body: Decodable { let data: String? }
+        let mimeType: String
+        let body: Body?
+        let parts: [Part]?
+
+        /// The decoded text of the first part (searching nested parts too) with the given MIME type.
+        func firstBody(ofType type: String) -> String? {
+            if mimeType == type, let encoded = body?.data, let data = Data(base64URLEncoded: encoded) {
+                return String(decoding: data, as: UTF8.self)
+            }
+            return parts?.lazy.compactMap { $0.firstBody(ofType: type) }.first
+        }
+    }
+    let payload: Part
+}
+
+private extension Data {
+    /// Decodes Gmail's URL-safe base64 (which may omit padding).
+    init?(base64URLEncoded string: String) {
+        var base64 = string.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        base64 += String(repeating: "=", count: (4 - base64.count % 4) % 4)
+        self.init(base64Encoded: base64)
+    }
 }
 
 private struct EmptyBody: Encodable {}

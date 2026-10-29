@@ -11,6 +11,7 @@ final class AppModel {
     let oauthConfig = GoogleOAuthConfig.fromBundle()
 
     private let auth = GoogleAuth()
+    @ObservationIgnored private var previews: [String: String] = [:]
 
     private static let keychainAccount = "google"
     private static let scopes = [
@@ -20,6 +21,7 @@ final class AppModel {
     ]
     private static let refreshInterval: Duration = .seconds(120)
     private static let upcomingWindow: TimeInterval = 24 * 60 * 60
+    private static let previewLength = 1500
     private static let acknowledgementDuration: Duration = .seconds(3)
 
     /// Unread inbox messages across all accounts, shown next to the menu bar icon.
@@ -190,10 +192,12 @@ final class AppModel {
         acknowledgement: String,
         _ action: (GmailClient) async throws -> Void
     ) async {
+        account.pendingActions.insert(message.threadID)
         do {
             let token = try await validAccessToken(for: account)
             try await action(GmailClient(accessToken: token))
         } catch {
+            account.pendingActions.remove(message.threadID)
             if let error = error as? GoogleAPIError, error.reason == "insufficientPermissions" {
                 // Accounts added when the app could only read mail need to sign in again to allow changes.
                 account.errorMessage = "No permission to change mail. Click Add Account and choose this account again to allow it."
@@ -203,10 +207,25 @@ final class AppModel {
             return
         }
         account.acknowledgements[message.threadID] = acknowledgement
+        account.pendingActions.remove(message.threadID)
         try? await Task.sleep(for: Self.acknowledgementDuration)
         account.acknowledgements[message.threadID] = nil
         account.messages.removeAll { $0.threadID == message.threadID }
         await refresh(account)
+    }
+
+    /// The start of the message's text for the hover preview, fetched once per message. Nil if it couldn't be loaded.
+    func preview(of message: UnreadMessage, in account: GoogleAccount) async -> String? {
+        if let cached = previews[message.id] { return cached }
+        do {
+            let token = try await validAccessToken(for: account)
+            let text = try await GmailClient(accessToken: token).bodyText(id: message.id)
+            let preview = String(text.prefix(Self.previewLength))
+            previews[message.id] = preview
+            return preview
+        } catch {
+            return nil
+        }
     }
 
     func open(_ message: UnreadMessage, in account: GoogleAccount) {
@@ -265,6 +284,8 @@ final class GoogleAccount: Identifiable {
     fileprivate(set) var messages: [UnreadMessage] = []
     /// Messages that were just acted on (by thread ID), with the text shown in place of their row.
     fileprivate(set) var acknowledgements: [String: String] = [:]
+    /// Messages (by thread ID) whose action is in progress, so their rows can show that instead of looking untouched.
+    fileprivate(set) var pendingActions: Set<String> = []
     fileprivate(set) var unreadCount: Int?
     fileprivate(set) var isRefreshing = false
     /// Whether mail and events have been fetched at least once.
