@@ -14,7 +14,8 @@ final class AppModel {
 
     private static let keychainAccount = "google"
     private static let scopes = [
-        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/gmail.modify",
+        "https://www.googleapis.com/auth/gmail.settings.basic",
         "https://www.googleapis.com/auth/calendar.events.readonly",
     ]
     private static let refreshInterval: Duration = .seconds(120)
@@ -136,6 +137,61 @@ final class AppModel {
         }
     }
 
+    func archive(_ message: UnreadMessage, in account: GoogleAccount) async {
+        await performMailAction(on: message, in: account) { client in
+            try await client.archive(threadID: message.threadID)
+        }
+    }
+
+    func blockAndReportSpam(_ message: UnreadMessage, in account: GoogleAccount) async {
+        await performMailAction(on: message, in: account) { client in
+            try await client.blockAndReportSpam(threadID: message.threadID, senderEmail: message.senderEmail)
+        }
+    }
+
+    /// Unsubscribes in one click and archives the conversation if the sender supports it,
+    /// otherwise opens the sender's unsubscribe page or a prefilled unsubscribe email in Gmail.
+    func unsubscribe(from message: UnreadMessage, in account: GoogleAccount) async {
+        switch message.unsubscribe {
+        case .oneClick(let url):
+            await performMailAction(on: message, in: account) { client in
+                try await unsubscribeWithOneClick(url)
+                try await client.archive(threadID: message.threadID)
+            }
+        case .website(let url):
+            NSWorkspace.shared.open(url)
+        case .email(let mailto):
+            NSWorkspace.shared.open(gmailComposeURL(for: mailto, accountEmail: account.email))
+        case nil:
+            break
+        }
+    }
+
+    /// Hides the message's conversation right away and runs `action`, then refreshes to get the
+    /// real unread count. If the action fails, the conversation is shown again with the error.
+    private func performMailAction(
+        on message: UnreadMessage,
+        in account: GoogleAccount,
+        _ action: (GmailClient) async throws -> Void
+    ) async {
+        let previousMessages = account.messages
+        account.messages.removeAll { $0.threadID == message.threadID }
+        do {
+            let token = try await validAccessToken(for: account)
+            try await action(GmailClient(accessToken: token))
+        } catch {
+            account.messages = previousMessages
+            if let error = error as? GoogleAPIError, error.reason == "insufficientPermissions" {
+                // Accounts added when the app could only read mail need to sign in again to allow changes.
+                account.errorMessage = "No permission to change mail. Click Add Account and choose this account again to allow it."
+            } else {
+                account.errorMessage = error.localizedDescription
+            }
+            return
+        }
+        await refresh(account)
+    }
+
     func open(_ message: UnreadMessage, in account: GoogleAccount) {
         NSWorkspace.shared.open(message.gmailURL(for: account.email))
     }
@@ -197,6 +253,8 @@ final class GoogleAccount: Identifiable {
     fileprivate(set) var errorMessage: String?
     fileprivate(set) var events: [CalendarEvent] = []
     fileprivate(set) var calendarErrorMessage: String?
+    /// Whether the account's mail and events are shown in the menu.
+    var isExpanded = true
     fileprivate var accessToken: AccessToken?
 
     var id: String { email }

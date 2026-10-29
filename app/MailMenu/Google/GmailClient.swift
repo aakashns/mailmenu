@@ -7,6 +7,8 @@ struct UnreadMessage: Identifiable, Hashable {
     let senderName: String?
     let senderEmail: String
     let subject: String
+    /// Set for mailing list messages that say how to unsubscribe.
+    let unsubscribe: UnsubscribeMethod?
 
     /// Opens the conversation in Gmail on the web, in the right account even if the browser
     /// is signed into several Google accounts (or prompts to sign in if it isn't signed in).
@@ -15,7 +17,7 @@ struct UnreadMessage: Identifiable, Hashable {
     }
 }
 
-/// Read-only client for the Gmail REST API (https://developers.google.com/gmail/api/reference/rest).
+/// Client for the Gmail REST API (https://developers.google.com/gmail/api/reference/rest).
 struct GmailClient {
     let api: GoogleAPI
 
@@ -66,6 +68,8 @@ struct GmailClient {
             URLQueryItem(name: "format", value: "metadata"),
             URLQueryItem(name: "metadataHeaders", value: "From"),
             URLQueryItem(name: "metadataHeaders", value: "Subject"),
+            URLQueryItem(name: "metadataHeaders", value: "List-Unsubscribe"),
+            URLQueryItem(name: "metadataHeaders", value: "List-Unsubscribe-Post"),
         ])
         func header(_ name: String) -> String? {
             message.payload.headers.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.value
@@ -76,7 +80,33 @@ struct GmailClient {
             threadID: message.threadId,
             senderName: sender.name,
             senderEmail: sender.email,
-            subject: header("Subject") ?? ""
+            subject: header("Subject") ?? "",
+            unsubscribe: UnsubscribeMethod(
+                listUnsubscribe: header("List-Unsubscribe"),
+                listUnsubscribePost: header("List-Unsubscribe-Post")
+            )
+        )
+    }
+
+    /// Removes the conversation from the inbox, like Gmail's Archive button.
+    func archive(threadID: String) async throws {
+        try await modify(threadID: threadID, add: [], remove: ["INBOX"])
+    }
+
+    /// Reports the conversation as spam, and adds a filter that sends future mail from
+    /// `senderEmail` straight to the trash (the Gmail API can't add to Gmail's own blocked list).
+    func blockAndReportSpam(threadID: String, senderEmail: String) async throws {
+        try await modify(threadID: threadID, add: ["SPAM"], remove: ["INBOX"])
+        try await api.post(Self.baseURL.appending(path: "settings/filters"), body: Filter(
+            criteria: .init(from: senderEmail),
+            action: .init(addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"])
+        ))
+    }
+
+    private func modify(threadID: String, add: [String], remove: [String]) async throws {
+        try await api.post(
+            Self.baseURL.appending(path: "threads/\(threadID)/modify"),
+            body: ModifyRequest(addLabelIds: add, removeLabelIds: remove)
         )
     }
 
@@ -117,4 +147,16 @@ private struct Message: Decodable {
     let id: String
     let threadId: String
     let payload: Payload
+}
+
+private struct ModifyRequest: Encodable {
+    let addLabelIds: [String]
+    let removeLabelIds: [String]
+}
+
+private struct Filter: Encodable {
+    struct Criteria: Encodable { let from: String }
+    struct Action: Encodable { let addLabelIds: [String]; let removeLabelIds: [String] }
+    let criteria: Criteria
+    let action: Action
 }

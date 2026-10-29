@@ -80,9 +80,30 @@ private struct AccountSection: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Text(account.email)
-                    .font(.headline)
-                    .lineLimit(1)
+                Button {
+                    withAnimation(.snappy(duration: 0.2)) { account.isExpanded.toggle() }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .rotationEffect(.degrees(account.isExpanded ? 90 : 0))
+                        Text(account.email)
+                            .font(.headline)
+                            .lineLimit(1)
+                        if let unreadCount = account.unreadCount, unreadCount > 0 {
+                            Text(unreadCount, format: .number)
+                                .font(.caption.weight(.semibold).monospacedDigit())
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 1)
+                                .background(.quaternary, in: .capsule)
+                        }
+                    }
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .help(account.isExpanded ? "Collapse" : "Expand")
                 Spacer()
                 Button {
                     model.openInbox(of: account)
@@ -117,39 +138,47 @@ private struct AccountSection: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
 
-            if let error = account.errorMessage {
-                ErrorText(error)
-            }
-
-            if !account.messages.isEmpty {
-                VStack(spacing: 0) {
-                    ForEach(account.messages) { message in
-                        MessageRow(message: message) { model.open(message, in: account) }
-                    }
+            if account.isExpanded {
+                if let error = account.errorMessage {
+                    ErrorText(error)
                 }
-                .padding([.horizontal, .bottom], 4)
-            }
 
-            if let error = account.calendarErrorMessage {
-                ErrorText(error)
-            }
-
-            if !account.upcomingEvents.isEmpty {
-                VStack(spacing: 0) {
-                    ForEach(account.upcomingEvents) { event in
-                        EventRow(event: event) { model.open(event) }
+                if !account.messages.isEmpty {
+                    VStack(spacing: 0) {
+                        ForEach(account.messages) { message in
+                            MessageRow(
+                                message: message,
+                                archive: { Task { await model.archive(message, in: account) } },
+                                unsubscribe: { Task { await model.unsubscribe(from: message, in: account) } },
+                                blockAndReportSpam: { Task { await model.blockAndReportSpam(message, in: account) } },
+                                open: { model.open(message, in: account) }
+                            )
+                        }
                     }
+                    .padding([.horizontal, .bottom], 4)
                 }
-                .padding([.horizontal, .bottom], 4)
-            }
 
-            if account.hasLoaded, account.messages.isEmpty, account.upcomingEvents.isEmpty,
-               account.errorMessage == nil, account.calendarErrorMessage == nil {
-                Text("No unread mail or upcoming events.")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 12)
+                if let error = account.calendarErrorMessage {
+                    ErrorText(error)
+                }
+
+                if !account.upcomingEvents.isEmpty {
+                    VStack(spacing: 0) {
+                        ForEach(account.upcomingEvents) { event in
+                            EventRow(event: event) { model.open(event) }
+                        }
+                    }
+                    .padding([.horizontal, .bottom], 4)
+                }
+
+                if account.hasLoaded, account.messages.isEmpty, account.upcomingEvents.isEmpty,
+                   account.errorMessage == nil, account.calendarErrorMessage == nil {
+                    Text("No unread mail or upcoming events.")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 12)
+                }
             }
         }
     }
