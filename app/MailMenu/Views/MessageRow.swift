@@ -1,30 +1,71 @@
 import SwiftUI
 
 /// One unread message: sender name and email on the first line, subject on the second,
-/// and buttons to archive and unsubscribe (or block) when hovered. Clicking anywhere else opens it in
-/// the browser. Blocking asks for confirmation inside the row first.
+/// and buttons to archive (or delete, while Shift is held) and unsubscribe (or block) when hovered.
+/// Clicking anywhere else opens it in the browser. Blocking asks for confirmation inside the row first,
+/// and once an action is done the row shows `acknowledgement` until it's removed.
 struct MessageRow: View {
     let message: UnreadMessage
+    let acknowledgement: String?
     let archive: () -> Void
+    let delete: () -> Void
     let unsubscribe: () -> Void
     let blockAndReportSpam: () -> Void
     let open: () -> Void
     @State private var isHovered = false
+    @State private var isShiftHeld = false
+    @State private var modifierMonitor: Any?
     @State private var isConfirmingBlock = false
 
+    private var isCovered: Bool { isConfirmingBlock || acknowledgement != nil }
+
     var body: some View {
-        // The message stays in the layout (invisible) under the confirmation, so the row keeps its height.
+        // The message stays in the layout (invisible) under the overlay, so the row keeps its height.
         messageContent
-            .opacity(isConfirmingBlock ? 0 : 1)
-            .allowsHitTesting(!isConfirmingBlock)
-            .accessibilityHidden(isConfirmingBlock)
+            .opacity(isCovered ? 0 : 1)
+            .allowsHitTesting(!isCovered)
+            .accessibilityHidden(isCovered)
             .overlay {
-                if isConfirmingBlock {
+                if let acknowledgement {
+                    acknowledgementView(acknowledgement)
+                } else if isConfirmingBlock {
                     blockConfirmation
                 }
             }
-            .rowStyle(isHovered: isHovered || isConfirmingBlock)
+            .rowStyle(isHovered: (isHovered && acknowledgement == nil) || isConfirmingBlock)
             .onHover { isHovered = $0 }
+            .onChange(of: isHovered) { _, hovered in
+                hovered ? startTrackingShift() : stopTrackingShift()
+            }
+            .onDisappear(perform: stopTrackingShift)
+    }
+
+    /// Shift is only checked while hovered, so only the hovered row listens for modifier key changes.
+    private func startTrackingShift() {
+        isShiftHeld = NSEvent.modifierFlags.contains(.shift)
+        modifierMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
+            isShiftHeld = event.modifierFlags.contains(.shift)
+            return event
+        }
+    }
+
+    private func stopTrackingShift() {
+        if let modifierMonitor {
+            NSEvent.removeMonitor(modifierMonitor)
+        }
+        modifierMonitor = nil
+        isShiftHeld = false
+    }
+
+    private func acknowledgementView(_ text: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+            Text(text)
+                .fontWeight(.semibold)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
     }
 
     private var messageContent: some View {
@@ -50,10 +91,10 @@ struct MessageRow: View {
             .help(isConfirmingBlock ? "" : "Open in browser")
             if isHovered {
                 HStack(spacing: 10) {
-                    Button(action: archive) {
-                        Image(systemName: "archivebox")
+                    Button(action: isShiftHeld ? delete : archive) {
+                        Image(systemName: isShiftHeld ? "trash" : "archivebox")
                     }
-                    .help("Archive")
+                    .help(isShiftHeld ? "Delete" : "Archive (hold Shift to delete)")
                     if message.unsubscribe != nil {
                         Button(action: unsubscribe) {
                             Image(systemName: "bell.slash")

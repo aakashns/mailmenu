@@ -20,6 +20,7 @@ final class AppModel {
     ]
     private static let refreshInterval: Duration = .seconds(120)
     private static let upcomingWindow: TimeInterval = 24 * 60 * 60
+    private static let acknowledgementDuration: Duration = .seconds(3)
 
     /// Unread inbox messages across all accounts, shown next to the menu bar icon.
     var totalUnreadCount: Int {
@@ -115,7 +116,14 @@ final class AppModel {
             let client = GmailClient(accessToken: token)
             async let messages = client.unreadInboxMessages(limit: 25)
             async let unreadCount = client.inboxUnreadCount()
-            (account.messages, account.unreadCount) = try await (messages, unreadCount)
+            var fetched = try await messages
+            // Rows showing an acknowledgement stay put until it ends, even though they're no longer unread in the inbox.
+            for (index, message) in account.messages.enumerated()
+            where account.acknowledgements[message.threadID] != nil
+                && !fetched.contains(where: { $0.threadID == message.threadID }) {
+                fetched.insert(message, at: min(index, fetched.count))
+            }
+            (account.messages, account.unreadCount) = (fetched, try await unreadCount)
             account.errorMessage = nil
         } catch {
             account.errorMessage = error.localizedDescription
@@ -138,13 +146,19 @@ final class AppModel {
     }
 
     func archive(_ message: UnreadMessage, in account: GoogleAccount) async {
-        await performMailAction(on: message, in: account) { client in
+        await performMailAction(on: message, in: account, acknowledgement: "Archived") { client in
             try await client.archive(threadID: message.threadID)
         }
     }
 
+    func delete(_ message: UnreadMessage, in account: GoogleAccount) async {
+        await performMailAction(on: message, in: account, acknowledgement: "Moved to trash") { client in
+            try await client.trash(threadID: message.threadID)
+        }
+    }
+
     func blockAndReportSpam(_ message: UnreadMessage, in account: GoogleAccount) async {
-        await performMailAction(on: message, in: account) { client in
+        await performMailAction(on: message, in: account, acknowledgement: "Blocked and reported as spam") { client in
             try await client.blockAndReportSpam(threadID: message.threadID, senderEmail: message.senderEmail)
         }
     }
@@ -154,7 +168,7 @@ final class AppModel {
     func unsubscribe(from message: UnreadMessage, in account: GoogleAccount) async {
         switch message.unsubscribe {
         case .oneClick(let url):
-            await performMailAction(on: message, in: account) { client in
+            await performMailAction(on: message, in: account, acknowledgement: "Unsubscribed and archived") { client in
                 try await unsubscribeWithOneClick(url)
                 try await client.archive(threadID: message.threadID)
             }
@@ -167,20 +181,19 @@ final class AppModel {
         }
     }
 
-    /// Hides the message's conversation right away and runs `action`, then refreshes to get the
-    /// real unread count. If the action fails, the conversation is shown again with the error.
+    /// Runs `action`, then replaces the message's row with `acknowledgement` for a few seconds
+    /// before removing it and refreshing to get the real unread count. If the action fails,
+    /// the row stays and the error is shown.
     private func performMailAction(
         on message: UnreadMessage,
         in account: GoogleAccount,
+        acknowledgement: String,
         _ action: (GmailClient) async throws -> Void
     ) async {
-        let previousMessages = account.messages
-        account.messages.removeAll { $0.threadID == message.threadID }
         do {
             let token = try await validAccessToken(for: account)
             try await action(GmailClient(accessToken: token))
         } catch {
-            account.messages = previousMessages
             if let error = error as? GoogleAPIError, error.reason == "insufficientPermissions" {
                 // Accounts added when the app could only read mail need to sign in again to allow changes.
                 account.errorMessage = "No permission to change mail. Click Add Account and choose this account again to allow it."
@@ -189,6 +202,10 @@ final class AppModel {
             }
             return
         }
+        account.acknowledgements[message.threadID] = acknowledgement
+        try? await Task.sleep(for: Self.acknowledgementDuration)
+        account.acknowledgements[message.threadID] = nil
+        account.messages.removeAll { $0.threadID == message.threadID }
         await refresh(account)
     }
 
@@ -246,6 +263,8 @@ final class GoogleAccount: Identifiable {
     let email: String
     fileprivate(set) var refreshToken: String
     fileprivate(set) var messages: [UnreadMessage] = []
+    /// Messages that were just acted on (by thread ID), with the text shown in place of their row.
+    fileprivate(set) var acknowledgements: [String: String] = [:]
     fileprivate(set) var unreadCount: Int?
     fileprivate(set) var isRefreshing = false
     /// Whether mail and events have been fetched at least once.

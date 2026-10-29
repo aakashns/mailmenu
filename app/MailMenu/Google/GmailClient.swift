@@ -93,6 +93,11 @@ struct GmailClient {
         try await modify(threadID: threadID, add: [], remove: ["INBOX"])
     }
 
+    /// Moves the conversation to the trash, like Gmail's Delete button.
+    func trash(threadID: String) async throws {
+        try await api.post(Self.baseURL.appending(path: "threads/\(threadID)/trash"), body: EmptyBody())
+    }
+
     /// Reports the conversation as spam, and adds a filter that sends future mail from
     /// `senderEmail` straight to the trash (the Gmail API can't add to Gmail's own blocked list).
     func blockAndReportSpam(threadID: String, senderEmail: String) async throws {
@@ -148,6 +153,8 @@ private struct Message: Decodable {
     let threadId: String
     let payload: Payload
 }
+
+private struct EmptyBody: Encodable {}
 
 private struct ModifyRequest: Encodable {
     let addLabelIds: [String]

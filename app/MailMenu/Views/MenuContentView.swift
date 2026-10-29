@@ -148,7 +148,9 @@ private struct AccountSection: View {
                         ForEach(account.messages) { message in
                             MessageRow(
                                 message: message,
+                                acknowledgement: account.acknowledgements[message.threadID],
                                 archive: { Task { await model.archive(message, in: account) } },
+                                delete: { Task { await model.delete(message, in: account) } },
                                 unsubscribe: { Task { await model.unsubscribe(from: message, in: account) } },
                                 blockAndReportSpam: { Task { await model.blockAndReportSpam(message, in: account) } },
                                 open: { model.open(message, in: account) }
