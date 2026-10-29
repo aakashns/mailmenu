@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// One upcoming event: title on the first line, time on the second, and a camera icon if it has a video call.
-/// Clicking joins the video call (or opens the event if there is none); hovering shows a button to open the event in Google Calendar.
+/// One upcoming event: title on the first line, time on the second. Clicking joins the video call (or opens
+/// the event if there is none). Hovering shows a camera icon if it has a video call, and a button to open the event in Google Calendar.
 struct EventRow: View {
     let event: CalendarEvent
     let action: () -> Void
@@ -20,7 +20,7 @@ struct EventRow: View {
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                if event.videoURL != nil {
+                if isHovered, event.videoURL != nil {
                     Image(systemName: "video.fill")
                         .foregroundStyle(.secondary)
                 }

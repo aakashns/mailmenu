@@ -4,6 +4,7 @@
 xcuserdata/
 DerivedData/
 build/
+build-demo/
 *.xcuserstate
 
 # Local, machine-specific build settings (Google client ID, signing team)
