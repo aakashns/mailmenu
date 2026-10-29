@@ -91,8 +91,8 @@ private struct AccountSection: View {
                         Text(account.email)
                             .font(.headline)
                             .lineLimit(1)
-                        if let unreadCount = account.unreadCount, unreadCount > 0 {
-                            Text(unreadCount, format: .number)
+                        if let count = account.count(for: model.mailFilter), count > 0 {
+                            Text(count, format: .number)
                                 .font(.caption.weight(.semibold).monospacedDigit())
                                 .foregroundStyle(.secondary)
                                 .padding(.horizontal, 6)
@@ -105,6 +105,18 @@ private struct AccountSection: View {
                 .buttonStyle(.plain)
                 .help(account.isExpanded ? "Collapse" : "Expand")
                 Spacer()
+                if account.isRefreshing {
+                    ProgressView().controlSize(.small)
+                        .frame(width: 16, height: 16)
+                } else {
+                    Button {
+                        Task { await model.refresh(account) }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .frame(width: 16, height: 16)
+                    }
+                    .help("Refresh")
+                }
                 Button {
                     model.openInbox(of: account)
                 } label: {
@@ -117,16 +129,6 @@ private struct AccountSection: View {
                     Image(systemName: "calendar")
                 }
                 .help("Open calendar in browser")
-                if account.isRefreshing {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Button {
-                        Task { await model.refresh(account) }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .help("Refresh")
-                }
                 Button {
                     model.signOut(account)
                 } label: {
@@ -168,7 +170,7 @@ private struct AccountSection: View {
                 if !account.upcomingEvents.isEmpty {
                     VStack(spacing: 0) {
                         ForEach(account.upcomingEvents) { event in
-                            EventRow(event: event) { model.open(event) }
+                            EventRow(event: event, action: { model.open(event) }, openInCalendar: { model.openInCalendar(event) })
                         }
                     }
                     .padding([.horizontal, .bottom], 4)
@@ -176,7 +178,7 @@ private struct AccountSection: View {
 
                 if account.hasLoaded, account.messages.isEmpty, account.upcomingEvents.isEmpty,
                    account.errorMessage == nil, account.calendarErrorMessage == nil {
-                    Text("No unread mail or upcoming events.")
+                    Text(model.mailFilter == .unread ? "No unread mail or upcoming events." : "No mail or upcoming events.")
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 12)
@@ -242,18 +244,38 @@ private struct FooterView: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        HStack {
-            if let status = model.status {
-                // Shown in the footer's own row, so the menu doesn't change height when it appears.
-                StatusLine(status: status)
-            } else if !model.accounts.isEmpty {
-                Button("Add Account") {
-                    Task { await model.addAccount() }
+        @Bindable var model = model
+        HStack(spacing: 10) {
+            // The status replaces the selector in place (which stays in the layout, hidden), so the footer doesn't change size.
+            ZStack(alignment: .leading) {
+                if !model.accounts.isEmpty {
+                    Picker("Show", selection: $model.mailFilter) {
+                        ForEach(MailFilter.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
+                    .opacity(model.status == nil ? 1 : 0)
+                    .allowsHitTesting(model.status == nil)
                 }
-                .disabled(model.isSigningIn)
+                if let status = model.status {
+                    StatusLine(status: status)
+                }
             }
             Spacer()
-            Button("Quit Mail Menu") { NSApp.terminate(nil) }
+            if !model.accounts.isEmpty {
+                Button {
+                    Task { await model.addAccount() }
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .disabled(model.isSigningIn)
+                .help("Add account")
+            }
+            Button { NSApp.terminate(nil) } label: {
+                Image(systemName: "power")
+            }
+            .help("Quit Mail Menu")
         }
         .buttonStyle(.borderless)
         .padding(.horizontal, 12)

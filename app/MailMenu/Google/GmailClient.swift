@@ -7,6 +7,8 @@ struct UnreadMessage: Identifiable, Hashable {
     let senderName: String?
     let senderEmail: String
     let subject: String
+    /// False for messages already read, which only show up when listing the whole inbox.
+    let isUnread: Bool
     /// Set for mailing list messages that say how to unsubscribe.
     let unsubscribe: UnsubscribeMethod?
 
@@ -37,19 +39,18 @@ struct GmailClient {
         return profile.emailAddress
     }
 
-    /// Total number of unread messages in the inbox (not limited to the ones we list).
-    func inboxUnreadCount() async throws -> Int {
+    /// Unread and total message counts for the inbox (not limited to the ones we list).
+    func inboxCounts() async throws -> (unread: Int, total: Int) {
         let label: LabelInfo = try await get("labels/INBOX")
-        return label.messagesUnread
+        return (label.messagesUnread, label.messagesTotal)
     }
 
-    /// The most recent unread messages in the inbox, newest first.
-    func unreadInboxMessages(limit: Int) async throws -> [UnreadMessage] {
-        let list: MessageList = try await get("messages", query: [
-            URLQueryItem(name: "labelIds", value: "INBOX"),
-            URLQueryItem(name: "labelIds", value: "UNREAD"),
-            URLQueryItem(name: "maxResults", value: String(limit)),
-        ])
+    /// The most recent messages in the inbox (only unread ones if `unreadOnly`), newest first.
+    func inboxMessages(unreadOnly: Bool, limit: Int) async throws -> [UnreadMessage] {
+        var query = [URLQueryItem(name: "labelIds", value: "INBOX")]
+        if unreadOnly { query.append(URLQueryItem(name: "labelIds", value: "UNREAD")) }
+        query.append(URLQueryItem(name: "maxResults", value: String(limit)))
+        let list: MessageList = try await get("messages", query: query)
         let ids = (list.messages ?? []).map(\.id)
 
         // Fetch headers for each message concurrently, then restore the list's order.
@@ -81,6 +82,7 @@ struct GmailClient {
             senderName: sender.name,
             senderEmail: sender.email,
             subject: header("Subject") ?? "",
+            isUnread: message.labelIds?.contains("UNREAD") ?? false,
             unsubscribe: UnsubscribeMethod(
                 listUnsubscribe: header("List-Unsubscribe"),
                 listUnsubscribePost: header("List-Unsubscribe-Post")
@@ -177,6 +179,7 @@ private struct Profile: Decodable {
 
 private struct LabelInfo: Decodable {
     let messagesUnread: Int
+    let messagesTotal: Int
 }
 
 private struct LabelList: Decodable {
@@ -200,6 +203,7 @@ private struct Message: Decodable {
     struct Header: Decodable { let name: String; let value: String }
     let id: String
     let threadId: String
+    let labelIds: [String]?
     let payload: Payload
 }
 

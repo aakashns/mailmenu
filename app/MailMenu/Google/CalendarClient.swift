@@ -11,8 +11,11 @@ struct CalendarEvent: Identifiable, Hashable {
     let accountEmail: String
 
     /// The video call if there is one, otherwise the event in Google Calendar (in the right account).
-    var url: URL? {
-        videoURL ?? htmlLink.flatMap { URL(string: $0.absoluteString + "&authuser=\(accountEmail.urlQueryValueEncoded)") }
+    var url: URL? { videoURL ?? calendarURL }
+
+    /// The event in Google Calendar on the web (in the right account).
+    var calendarURL: URL? {
+        htmlLink.flatMap { URL(string: $0.absoluteString + "&authuser=\(accountEmail.urlQueryValueEncoded)") }
     }
 }
 

@@ -1,12 +1,15 @@
 import SwiftUI
 
 /// One upcoming event: title on the first line, time on the second, and a camera icon if it has a video call.
+/// Clicking joins the video call (or opens the event if there is none); hovering shows a button to open the event in Google Calendar.
 struct EventRow: View {
     let event: CalendarEvent
     let action: () -> Void
+    let openInCalendar: () -> Void
+    @State private var isHovered = false
 
     var body: some View {
-        Button(action: action) {
+        HStack(spacing: 8) {
             HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(event.title)
@@ -22,9 +25,20 @@ struct EventRow: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(.rect)
+            .onTapGesture(perform: action)
+            .help(event.videoURL != nil ? "Join video call" : "Open in Google Calendar")
+            if isHovered {
+                Button(action: openInCalendar) {
+                    Image(systemName: "calendar")
+                }
+                .buttonStyle(.borderless)
+                .help("Open in Google Calendar")
+            }
         }
-        .buttonStyle(.row)
-        .help(event.videoURL != nil ? "Join video call" : "Open in Google Calendar")
+        .rowStyle(isHovered: isHovered)
+        .onHover { isHovered = $0 }
     }
 
     private var timeDescription: String {

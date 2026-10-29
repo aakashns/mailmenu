@@ -10,6 +10,11 @@ final class AppModel {
     /// Progress of the latest mail action, shown below the list.
     private(set) var status: ActionStatus?
 
+    /// Which inbox messages are listed. Changing it reloads the lists.
+    var mailFilter: MailFilter = .unread {
+        didSet { if mailFilter != oldValue { Task { await refreshAll() } } }
+    }
+
     let oauthConfig = GoogleOAuthConfig.fromBundle()
 
     private let auth = GoogleAuth()
@@ -23,6 +28,7 @@ final class AppModel {
     ]
     private static let refreshInterval: Duration = .seconds(120)
     private static let upcomingWindow: TimeInterval = 24 * 60 * 60
+    private static let listLimit = 20
     private static let previewLength = 1500
     private static let statusDuration: Duration = .seconds(3)
 
@@ -119,11 +125,15 @@ final class AppModel {
         do {
             let client = GmailClient(accessToken: token)
             await wakeSnoozedMessages(account, client: client)
-            async let messages = client.unreadInboxMessages(limit: 25)
-            async let unreadCount = client.inboxUnreadCount()
+            let filter = mailFilter
+            async let messages = client.inboxMessages(unreadOnly: filter == .unread, limit: Self.listLimit)
+            async let counts = client.inboxCounts()
             // Messages being acted on are already gone from the list, even if Gmail hasn't caught up yet.
             let fetched = try await messages.filter { !account.pendingActions.contains($0.threadID) }
-            (account.messages, account.unreadCount) = (fetched, try await unreadCount)
+            // The filter may have changed while loading; the refresh it triggered will set the right list.
+            guard filter == mailFilter else { return }
+            account.messages = fetched
+            (account.unreadCount, account.totalCount) = try await (counts.unread, counts.total)
             account.errorMessage = nil
         } catch {
             account.errorMessage = error.localizedDescription
@@ -292,6 +302,12 @@ final class AppModel {
         }
     }
 
+    func openInCalendar(_ event: CalendarEvent) {
+        if let url = event.calendarURL {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     private func validAccessToken(for account: GoogleAccount) async throws -> String {
         if let accessToken = account.accessToken, accessToken.isValid {
             return accessToken.value
@@ -331,6 +347,7 @@ final class GoogleAccount: Identifiable {
     /// Messages (by thread ID) that were just acted on and are hidden until Gmail reflects it.
     fileprivate(set) var pendingActions: Set<String> = []
     fileprivate(set) var unreadCount: Int?
+    fileprivate(set) var totalCount: Int?
     fileprivate(set) var isRefreshing = false
     /// Whether mail and events have been fetched at least once.
     fileprivate(set) var hasLoaded = false
@@ -343,7 +360,12 @@ final class GoogleAccount: Identifiable {
 
     var id: String { email }
 
-    /// Events that haven't ended yet, soonest first.
+    /// The number of messages matching the filter, shown next to the email.
+    func count(for filter: MailFilter) -> Int? {
+        filter == .unread ? unreadCount : totalCount
+    }
+
+    /// Events that haven't ended yet (including ones in progress), soonest first.
     var upcomingEvents: [CalendarEvent] {
         let now = Date.now
         return events.filter { $0.end > now }
@@ -366,4 +388,11 @@ struct ActionStatus: Identifiable {
     let id = UUID()
     let text: String
     let isWorking: Bool
+}
+
+enum MailFilter: String, CaseIterable, Identifiable {
+    case unread = "Unread"
+    case all = "All"
+
+    var id: Self { self }
 }
