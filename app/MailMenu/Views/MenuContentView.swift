@@ -148,9 +148,8 @@ private struct AccountSection: View {
                         ForEach(account.messages) { message in
                             MessageRow(
                                 message: message,
-                                acknowledgement: account.acknowledgements[message.threadID],
-                                isPending: account.pendingActions.contains(message.threadID),
                                 archive: { Task { await model.archive(message, in: account) } },
+                                snooze: { date in Task { await model.snooze(message, until: date, in: account) } },
                                 delete: { Task { await model.delete(message, in: account) } },
                                 unsubscribe: { Task { await model.unsubscribe(from: message, in: account) } },
                                 blockAndReportSpam: { Task { await model.blockAndReportSpam(message, in: account) } },
@@ -205,6 +204,26 @@ private struct ErrorText: View {
     }
 }
 
+/// Progress of the latest mail action, shown in the footer.
+private struct StatusLine: View {
+    let status: ActionStatus
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if status.isWorking {
+                ProgressView().controlSize(.small)
+            } else {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+            }
+            Text(status.text)
+                .foregroundStyle(status.isWorking ? .secondary : .primary)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+    }
+}
+
 private struct NotConfiguredView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -224,7 +243,10 @@ private struct FooterView: View {
 
     var body: some View {
         HStack {
-            if !model.accounts.isEmpty {
+            if let status = model.status {
+                // Shown in the footer's own row, so the menu doesn't change height when it appears.
+                StatusLine(status: status)
+            } else if !model.accounts.isEmpty {
                 Button("Add Account") {
                     Task { await model.addAccount() }
                 }

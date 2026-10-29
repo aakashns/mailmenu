@@ -105,6 +105,32 @@ struct GmailClient {
         try await modify(threadID: threadID, add: [], remove: ["INBOX"])
     }
 
+    /// Hides the conversation from the inbox under a "Mail Menu Snoozed" label (the Gmail API can't use
+    /// Gmail's own snooze), until `unsnooze` puts it back.
+    func snooze(threadID: String) async throws {
+        try await modify(threadID: threadID, add: [snoozeLabelID()], remove: ["INBOX"])
+    }
+
+    /// Returns a snoozed conversation to the inbox as unread.
+    func unsnooze(threadID: String) async throws {
+        try await modify(threadID: threadID, add: ["INBOX", "UNREAD"], remove: [snoozeLabelID()])
+    }
+
+    private static let snoozeLabelName = "Mail Menu Snoozed"
+
+    private func snoozeLabelID() async throws -> String {
+        func find() async throws -> String? {
+            let list: LabelList = try await get("labels")
+            return list.labels.first { $0.name == Self.snoozeLabelName }?.id
+        }
+        if let id = try await find() { return id }
+        try await api.post(Self.baseURL.appending(path: "labels"), body: NewLabel(name: Self.snoozeLabelName))
+        guard let id = try await find() else {
+            throw GoogleAPIError.requestFailed(status: 0, reason: nil, message: "Couldn't create the snooze label")
+        }
+        return id
+    }
+
     /// Moves the conversation to the trash, like Gmail's Delete button.
     func trash(threadID: String) async throws {
         try await api.post(Self.baseURL.appending(path: "threads/\(threadID)/trash"), body: EmptyBody())
@@ -151,6 +177,17 @@ private struct Profile: Decodable {
 
 private struct LabelInfo: Decodable {
     let messagesUnread: Int
+}
+
+private struct LabelList: Decodable {
+    struct Label: Decodable { let id: String; let name: String }
+    let labels: [Label]
+}
+
+private struct NewLabel: Encodable {
+    let name: String
+    let labelListVisibility = "labelShow"
+    let messageListVisibility = "show"
 }
 
 private struct MessageList: Decodable {

@@ -7,6 +7,8 @@ final class AppModel {
     private(set) var accounts: [GoogleAccount] = []
     private(set) var isSigningIn = false
     var errorMessage: String?
+    /// Progress of the latest mail action, shown below the list.
+    private(set) var status: ActionStatus?
 
     let oauthConfig = GoogleOAuthConfig.fromBundle()
 
@@ -22,7 +24,7 @@ final class AppModel {
     private static let refreshInterval: Duration = .seconds(120)
     private static let upcomingWindow: TimeInterval = 24 * 60 * 60
     private static let previewLength = 1500
-    private static let acknowledgementDuration: Duration = .seconds(3)
+    private static let statusDuration: Duration = .seconds(3)
 
     /// Unread inbox messages across all accounts, shown next to the menu bar icon.
     var totalUnreadCount: Int {
@@ -116,15 +118,11 @@ final class AppModel {
     private func refreshMail(_ account: GoogleAccount, token: String) async {
         do {
             let client = GmailClient(accessToken: token)
+            await wakeSnoozedMessages(account, client: client)
             async let messages = client.unreadInboxMessages(limit: 25)
             async let unreadCount = client.inboxUnreadCount()
-            var fetched = try await messages
-            // Rows showing an acknowledgement stay put until it ends, even though they're no longer unread in the inbox.
-            for (index, message) in account.messages.enumerated()
-            where account.acknowledgements[message.threadID] != nil
-                && !fetched.contains(where: { $0.threadID == message.threadID }) {
-                fetched.insert(message, at: min(index, fetched.count))
-            }
+            // Messages being acted on are already gone from the list, even if Gmail hasn't caught up yet.
+            let fetched = try await messages.filter { !account.pendingActions.contains($0.threadID) }
             (account.messages, account.unreadCount) = (fetched, try await unreadCount)
             account.errorMessage = nil
         } catch {
@@ -148,19 +146,56 @@ final class AppModel {
     }
 
     func archive(_ message: UnreadMessage, in account: GoogleAccount) async {
-        await performMailAction(on: message, in: account, acknowledgement: "Archived") { client in
+        await performMailAction(on: message, in: account, working: "Archiving…", done: "Archived") { client in
             try await client.archive(threadID: message.threadID)
         }
     }
 
+    /// Hides the message until `date`, when a refresh puts it back in the inbox as unread.
+    func snooze(_ message: UnreadMessage, until date: Date, in account: GoogleAccount) async {
+        await performMailAction(on: message, in: account, working: "Snoozing…", done: "Snoozed") { client in
+            try await client.snooze(threadID: message.threadID)
+            self.setSnoozeDate(date, for: message.threadID, in: account)
+        }
+    }
+
+    /// Brings back snoozed messages whose time has come.
+    private func wakeSnoozedMessages(_ account: GoogleAccount, client: GmailClient) async {
+        let now = Date.now
+        let due = snoozeDates(for: account).filter { $0.value <= now }.keys
+        for threadID in due {
+            do {
+                try await client.unsnooze(threadID: threadID)
+                setSnoozeDate(nil, for: threadID, in: account)
+            } catch let error as GoogleAPIError where error.reason == "notFound" || error.reason == "invalidArgument" {
+                setSnoozeDate(nil, for: threadID, in: account) // the conversation is gone
+            } catch {
+                return // try again on the next refresh
+            }
+        }
+    }
+
+    private func snoozeDates(for account: GoogleAccount) -> [String: Date] {
+        let stored = UserDefaults.standard.dictionary(forKey: Self.snoozeKey(account)) as? [String: Double] ?? [:]
+        return stored.mapValues { Date(timeIntervalSince1970: $0) }
+    }
+
+    private func setSnoozeDate(_ date: Date?, for threadID: String, in account: GoogleAccount) {
+        var stored = UserDefaults.standard.dictionary(forKey: Self.snoozeKey(account)) as? [String: Double] ?? [:]
+        stored[threadID] = date?.timeIntervalSince1970
+        UserDefaults.standard.set(stored, forKey: Self.snoozeKey(account))
+    }
+
+    private static func snoozeKey(_ account: GoogleAccount) -> String { "snoozed.\(account.email)" }
+
     func delete(_ message: UnreadMessage, in account: GoogleAccount) async {
-        await performMailAction(on: message, in: account, acknowledgement: "Moved to trash") { client in
+        await performMailAction(on: message, in: account, working: "Moving to trash…", done: "Moved to trash") { client in
             try await client.trash(threadID: message.threadID)
         }
     }
 
     func blockAndReportSpam(_ message: UnreadMessage, in account: GoogleAccount) async {
-        await performMailAction(on: message, in: account, acknowledgement: "Blocked and reported as spam") { client in
+        await performMailAction(on: message, in: account, working: "Blocking…", done: "Blocked and reported as spam") { client in
             try await client.blockAndReportSpam(threadID: message.threadID, senderEmail: message.senderEmail)
         }
     }
@@ -170,7 +205,7 @@ final class AppModel {
     func unsubscribe(from message: UnreadMessage, in account: GoogleAccount) async {
         switch message.unsubscribe {
         case .oneClick(let url):
-            await performMailAction(on: message, in: account, acknowledgement: "Unsubscribed and archived") { client in
+            await performMailAction(on: message, in: account, working: "Unsubscribing…", done: "Unsubscribed and archived") { client in
                 try await unsubscribeWithOneClick(url)
                 try await client.archive(threadID: message.threadID)
             }
@@ -183,21 +218,28 @@ final class AppModel {
         }
     }
 
-    /// Runs `action`, then replaces the message's row with `acknowledgement` for a few seconds
-    /// before removing it and refreshing to get the real unread count. If the action fails,
-    /// the row stays and the error is shown.
+    /// Removes the message's row right away and runs `action`, showing `working` and then `done` in the
+    /// status line below the list. If the action fails, the row comes back and the error is shown.
     private func performMailAction(
         on message: UnreadMessage,
         in account: GoogleAccount,
-        acknowledgement: String,
+        working: String,
+        done: String,
         _ action: (GmailClient) async throws -> Void
     ) async {
+        let index = account.messages.firstIndex { $0.threadID == message.threadID }
         account.pendingActions.insert(message.threadID)
+        account.messages.removeAll { $0.threadID == message.threadID }
+        let status = ActionStatus(text: working, isWorking: true)
+        self.status = status
+
         do {
             let token = try await validAccessToken(for: account)
             try await action(GmailClient(accessToken: token))
         } catch {
             account.pendingActions.remove(message.threadID)
+            account.messages.insert(message, at: min(index ?? 0, account.messages.count))
+            if self.status?.id == status.id { self.status = nil }
             if let error = error as? GoogleAPIError, error.reason == "insufficientPermissions" {
                 // Accounts added when the app could only read mail need to sign in again to allow changes.
                 account.errorMessage = "No permission to change mail. Click Add Account and choose this account again to allow it."
@@ -206,12 +248,16 @@ final class AppModel {
             }
             return
         }
-        account.acknowledgements[message.threadID] = acknowledgement
-        account.pendingActions.remove(message.threadID)
-        try? await Task.sleep(for: Self.acknowledgementDuration)
-        account.acknowledgements[message.threadID] = nil
-        account.messages.removeAll { $0.threadID == message.threadID }
+
+        let success = ActionStatus(text: done, isWorking: false)
+        self.status = success
+        Task {
+            try? await Task.sleep(for: Self.statusDuration)
+            if self.status?.id == success.id { self.status = nil }
+        }
+        // Refresh to get the real unread count, then stop hiding the message (it's no longer unread).
         await refresh(account)
+        account.pendingActions.remove(message.threadID)
     }
 
     /// The start of the message's text for the hover preview, fetched once per message. Nil if it couldn't be loaded.
@@ -282,9 +328,7 @@ final class GoogleAccount: Identifiable {
     let email: String
     fileprivate(set) var refreshToken: String
     fileprivate(set) var messages: [UnreadMessage] = []
-    /// Messages that were just acted on (by thread ID), with the text shown in place of their row.
-    fileprivate(set) var acknowledgements: [String: String] = [:]
-    /// Messages (by thread ID) whose action is in progress, so their rows can show that instead of looking untouched.
+    /// Messages (by thread ID) that were just acted on and are hidden until Gmail reflects it.
     fileprivate(set) var pendingActions: Set<String> = []
     fileprivate(set) var unreadCount: Int?
     fileprivate(set) var isRefreshing = false
@@ -315,4 +359,11 @@ final class GoogleAccount: Identifiable {
 private struct SavedAccount: Codable {
     var email: String
     var refreshToken: String
+}
+
+/// A mail action in progress or just completed, shown below the list.
+struct ActionStatus: Identifiable {
+    let id = UUID()
+    let text: String
+    let isWorking: Bool
 }
