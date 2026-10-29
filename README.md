@@ -7,6 +7,8 @@ Currently: sign in with one or more Google accounts to see:
 - **Unread mail** in your Gmail inboxes, with the total count in the menu bar. Click a message to open it in Gmail, or hover it to archive it or unsubscribe from its mailing list (or, for other mail, block the sender and report spam). Click an account to collapse or expand it.
 - **Upcoming events** in the next 24 hours from your Google Calendars. Click an event to join its video call (Google Meet, Zoom, Teams, …) or open it in Google Calendar.
 
+![Mail Menu showing unread mail and upcoming events for two accounts](docs/screenshot.jpg)
+
 ## Prerequisites
 
 - macOS 14+ and Xcode 16+.
