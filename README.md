@@ -10,9 +10,10 @@ A macOS menu bar app to track unread email and upcoming calendar events.
 - Unread or all inbox mail, with collapsible accounts
 - Text preview of email on hover, click to open in browser
 - Buttons to archive, unsubscribe, or block and report spam
-- Upcoming events in the next 24 hours, including those in progress
-- Join video calls (Meet, Zoom, Teams, …) or open events in Google Calendar
-- Opens at login, refreshes every 2 minutes and whenever you open the menu
+- Lists upcoming calendar events in the next 24 hours
+- Join video calls (Meet, Zoom, etc.) with one click
+- Opens at login, fetches fresh data every 2 minutes
+- Completely private and secure, data never leaves your laptop
 
 ## Prerequisites
 
