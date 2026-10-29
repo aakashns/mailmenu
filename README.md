@@ -8,8 +8,8 @@ A macOS menu bar app to track unread email and upcoming calendar events.
 
 - Unread count in the menu bar, across multiple Google accounts
 - Unread or all inbox mail, with collapsible accounts
-- Open a message in Gmail with a click
-- Archive, unsubscribe, or block and report spam on hover
+- Text preview of email on hover, click to open in browser
+- Buttons to archive, unsubscribe, or block and report spam
 - Upcoming events in the next 24 hours, including those in progress
 - Join video calls (Meet, Zoom, Teams, …) or open events in Google Calendar
 - Opens at login, refreshes every 2 minutes and whenever you open the menu
